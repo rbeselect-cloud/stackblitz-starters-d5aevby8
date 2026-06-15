@@ -74,11 +74,31 @@ const FORMAS = ["Pix","Cartão Crédito","Cartão Débito","Transferência","Din
 const MESES = ["Jan","Fev","Mar","Abr","Mai","Jun","Jul","Ago","Set","Out","Nov","Dez"];
  
 const hoje = () => new Date().toISOString().split("T")[0];
+const dataLocal = d => new Date(d + "T12:00:00");
+const addDiasUteis = (data, dias=7) => {
+  if(!data) return "";
+  const dt = dataLocal(data);
+  let adicionados = 0;
+  while(adicionados < dias){
+    dt.setDate(dt.getDate()+1);
+    const sem = dt.getDay();
+    if(sem !== 0 && sem !== 6) adicionados++;
+  }
+  return dt.toISOString().split("T")[0];
+};
+const limparTel = tel => String(tel||"").replace(/\D/g,"");
+const linkWhats = tel => {
+  const n=limparTel(tel);
+  if(!n) return "";
+  const br=n.startsWith("55")?n:"55"+n;
+  return "https://wa.me/"+br;
+};
+const usuarioPorNome = (users,nome) => Object.values(users||{}).find(u => (u.name||"").trim().toLowerCase()===(nome||"").trim().toLowerCase());
 const moeda = v => "R$ " + Number(v||0).toFixed(2).replace(".",",").replace(/\B(?=(\d{3})+(?!\d))/g,".");
 const fdata = d => d ? new Date(d+"T12:00:00").toLocaleDateString("pt-BR") : "—";
 const uid = () => "PED"+Date.now().toString().slice(-6);
-const diasPara = d => Math.ceil((new Date(d+"T23:59:59") - new Date()) / 86400000);
-const USERS_DEFAULT = { admin:{ name:"Admin", role:"admin", pass:"admin123" } };
+const diasPara = d => Math.round((dataLocal(d) - dataLocal(hoje())) / 86400000);
+const USERS_DEFAULT = { admin:{ name:"Admin", role:"admin", pass:"admin123", whatsapp:"" } };
  
 const { useState, useEffect } = React;
  
@@ -196,7 +216,7 @@ function Login({onLogin,users}){
 function Configuracoes({users,onSave}){
   const [u,setU]=useState(JSON.parse(JSON.stringify(users)));
   const [nLogin,setNLogin]=useState(""); const [nNome,setNNome]=useState("");
-  const [nSenha,setNSenha]=useState(""); const [nPerfil,setNPerfil]=useState("operador");
+  const [nSenha,setNSenha]=useState(""); const [nPerfil,setNPerfil]=useState("operador"); const [nWhats,setNWhats]=useState("");
   const [msg,setMsg]=useState(""); const [msgTipo,setMsgTipo]=useState("ok");
   const [errNovo,setErrNovo]=useState("");
   const salvar=async(dados)=>{
@@ -212,8 +232,8 @@ function Configuracoes({users,onSave}){
     if(!nNome.trim()){setErrNovo("Informe o nome.");return;}
     if(!nSenha){setErrNovo("Informe a senha.");return;}
     if(u[l]){setErrNovo("Login já existe.");return;}
-    const novo={...u,[l]:{name:nNome.trim(),role:nPerfil,pass:nSenha}};
-    setU(novo); salvar(novo); setNLogin(""); setNNome(""); setNSenha(""); setNPerfil("operador");
+    const novo={...u,[l]:{name:nNome.trim(),role:nPerfil,pass:nSenha,whatsapp:nWhats.trim()}};
+    setU(novo); salvar(novo); setNLogin(""); setNNome(""); setNSenha(""); setNWhats(""); setNPerfil("operador");
   };
   const excluir=(key)=>{
     if(key==="admin"){alert("O admin não pode ser excluído.");return;}
@@ -228,6 +248,7 @@ function Configuracoes({users,onSave}){
           <Inp label="Login" value={nLogin} onChange={e=>setNLogin(e.target.value)} placeholder="ex: joana" style={{background:"#1e3f6e",color:C.white,borderColor:"#ffffff22"}}/>
           <Inp label="Nome" value={nNome} onChange={e=>setNNome(e.target.value)} placeholder="ex: Joana Silva" style={{background:"#1e3f6e",color:C.white,borderColor:"#ffffff22"}}/>
           <Inp label="Senha" type="password" value={nSenha} onChange={e=>setNSenha(e.target.value)} placeholder="Defina uma senha" style={{background:"#1e3f6e",color:C.white,borderColor:"#ffffff22"}}/>
+          <Inp label="WhatsApp" value={nWhats} onChange={e=>setNWhats(e.target.value)} placeholder="(22) 99999-9999" style={{background:"#1e3f6e",color:C.white,borderColor:"#ffffff22"}}/>
           <div style={{display:"flex",flexDirection:"column",gap:4}}>
             <label style={{fontSize:12,fontWeight:600,color:"#ffffffaa",textTransform:"uppercase",letterSpacing:.5}}>Perfil</label>
             <select value={nPerfil} onChange={e=>setNPerfil(e.target.value)}
@@ -252,6 +273,7 @@ function Configuracoes({users,onSave}){
           </div>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
             <Inp label="Nome" value={val.name||""} onChange={e=>atualizar(key,"name",e.target.value)}/>
+            <Inp label="WhatsApp" value={val.whatsapp||""} onChange={e=>atualizar(key,"whatsapp",e.target.value)} placeholder="(22) 99999-9999"/>
             <Inp label="Nova senha" type="password" value={val.pass||""} onChange={e=>atualizar(key,"pass",e.target.value)} placeholder="Alterar senha"/>
           </div>
         </div>
@@ -267,8 +289,12 @@ const VAZIO={id:"",nome:"",idade:"",tel:"",email:"",cidade:"",dataPed:hoje(),pra
   stPgto:"Pendente",stServ:"Aguardando",entregaReal:"",obs:"",indicado:"",operador:""};
  
 function FormPedido({ini,onSave,onCancel,currentUser}){
-  const [f,setF]=useState(ini||{...VAZIO,id:uid(),operador:currentUser?.name||""});
-  const set=(k,v)=>setF(p=>({...p,[k]:v}));
+  const [f,setF]=useState(()=>ini||{...VAZIO,id:uid(),dataPed:hoje(),prazo:addDiasUteis(hoje(),7),operador:currentUser?.name||""});
+  const set=(k,v)=>setF(p=>{
+    const novo={...p,[k]:v};
+    if(k==="dataPed") novo.prazo=addDiasUteis(v,7);
+    return novo;
+  });
   const vf=Number(f.valor||0)-Number(f.desc||0);
   return (
     <div style={{display:"flex",flexDirection:"column",gap:16}}>
@@ -417,7 +443,7 @@ function Detalhe({p,onClose,onEdit,isAdmin}){
   );
 }
  
-function AvisosPrazo({peds,onVerPedido}){
+function AvisosPrazo({peds,onVerPedido,users}){
   const hj=hoje();
   const atrasados=peds.filter(p=>p.prazo&&p.prazo<hj&&p.stServ!=="Concluído"&&p.stServ!=="Cancelado");
   const proximos=peds.filter(p=>{
@@ -442,9 +468,13 @@ function AvisosPrazo({peds,onVerPedido}){
                   <span style={{fontSize:12,color:C.g600,marginLeft:8}}>{p.servico}</span>
                   {p.operador&&<span style={{fontSize:12,color:C.g600,marginLeft:8}}>· 👤 {p.operador}</span>}
                 </div>
-                <div style={{textAlign:"right",flexShrink:0,marginLeft:12}}>
-                  <div style={{fontSize:12,fontWeight:700,color:C.red}}>Prazo: {fdata(p.prazo)}</div>
-                  <Badge status={p.stServ} tipo="serv"/>
+                <div style={{textAlign:"right",flexShrink:0,marginLeft:12,display:"flex",alignItems:"center",gap:8}}>
+                  <div>
+                    <div style={{fontSize:12,fontWeight:700,color:C.red}}>Prazo: {fdata(p.prazo)}</div>
+                    <Badge status={p.stServ} tipo="serv"/>
+                  </div>
+                  {usuarioPorNome(users,p.operador)?.whatsapp&&<a onClick={e=>e.stopPropagation()} href={linkWhats(usuarioPorNome(users,p.operador).whatsapp)} target="_blank"
+                    style={{textDecoration:"none",fontSize:12,fontWeight:700,color:C.green,background:C.greenL,border:"1px solid "+C.green+"55",borderRadius:8,padding:"6px 9px"}}>📱 WhatsApp</a>}
                 </div>
               </div>
             ))}
@@ -469,9 +499,13 @@ function AvisosPrazo({peds,onVerPedido}){
                     <span style={{fontSize:12,color:C.g600,marginLeft:8}}>{p.servico}</span>
                     {p.operador&&<span style={{fontSize:12,color:C.g600,marginLeft:8}}>· 👤 {p.operador}</span>}
                   </div>
-                  <div style={{textAlign:"right",flexShrink:0,marginLeft:12}}>
-                    <div style={{fontSize:12,fontWeight:700,color:C.yellow}}>{txt}</div>
-                    <div style={{fontSize:11,color:C.g600}}>{fdata(p.prazo)}</div>
+                  <div style={{textAlign:"right",flexShrink:0,marginLeft:12,display:"flex",alignItems:"center",gap:8}}>
+                    <div>
+                      <div style={{fontSize:12,fontWeight:700,color:C.yellow}}>{txt}</div>
+                      <div style={{fontSize:11,color:C.g600}}>{fdata(p.prazo)}</div>
+                    </div>
+                    {usuarioPorNome(users,p.operador)?.whatsapp&&<a onClick={e=>e.stopPropagation()} href={linkWhats(usuarioPorNome(users,p.operador).whatsapp)} target="_blank"
+                      style={{textDecoration:"none",fontSize:12,fontWeight:700,color:C.green,background:C.greenL,border:"1px solid "+C.green+"55",borderRadius:8,padding:"6px 9px"}}>📱 WhatsApp</a>}
                   </div>
                 </div>
               );
@@ -728,6 +762,8 @@ function App(){
   const [fSt,setFSt]=useState("Todos");
   const [fOp,setFOp]=useState("Todos");
   const [fServ,setFServ]=useState("Todos");
+  const [fMes,setFMes]=useState("Todos");
+  const [fAno,setFAno]=useState("Todos");
  
   useEffect(()=>{
     try{const s=sessionStorage.getItem("rbe-session");if(s)setSession(JSON.parse(s));}catch{}
@@ -758,12 +794,15 @@ function App(){
   const logout=()=>{setSession(null);try{sessionStorage.removeItem("rbe-session");}catch{}};
  
   const operadores=[...new Set(peds.map(p=>p.operador).filter(Boolean))];
+  const anosFiltro=[...new Set(peds.map(p=>p.dataPed?.slice(0,4)).filter(Boolean))].sort().reverse();
   const filtrados=peds.filter(p=>{
     const mb=!busca||p.nome?.toLowerCase().includes(busca.toLowerCase())||p.id?.includes(busca)||(p.tel||"").includes(busca);
     const tipoServico=(p.servico||"").toLowerCase();
     const filtroServico=fServ.toLowerCase();
     const ms=fServ==="Todos"||tipoServico.includes(filtroServico);
-    return mb&&ms&&(fSt==="Todos"||p.stServ===fSt)&&(fOp==="Todos"||p.operador===fOp);
+    const ma=fAno==="Todos"||p.dataPed?.slice(0,4)===fAno;
+    const mm=fMes==="Todos"||p.dataPed?.slice(5,7)===fMes;
+    return mb&&ms&&ma&&mm&&(fSt==="Todos"||p.stServ===fSt)&&(fOp==="Todos"||p.operador===fOp);
   });
  
   const totalPago=peds.filter(p=>p.stPgto==="Pago").reduce((s,p)=>s+(p.valor-(p.desc||0)),0);
@@ -808,7 +847,7 @@ function App(){
           {atras>0&&<Kpi label="Atrasados" valor={atras} icon="🚨" cor={C.red}/>}
         </div>}
         {aba==="pedidos"&&<>
-          <AvisosPrazo peds={peds} onVerPedido={setDetalhe}/>
+          <AvisosPrazo peds={peds} onVerPedido={setDetalhe} users={users}/>
           <div style={{background:C.white,borderRadius:12,padding:"14px 18px",marginBottom:20,border:"1px solid "+C.g200,display:"flex",justifyContent:"space-between",alignItems:"center",gap:12,flexWrap:"wrap"}}>
             <div>
               <div style={{fontWeight:700,color:C.navy,fontSize:14}}>⬇️ Backup dos clientes</div>
@@ -824,6 +863,8 @@ function App(){
             <Sel value={fSt} onChange={e=>setFSt(e.target.value)} options={["Todos",...S_SERV.map(s=>s.l)].map(s=>({v:s,t:s}))}/>
             <Sel value={fServ} onChange={e=>setFServ(e.target.value)} options={[{v:"Todos",t:"Todos os serviços"},{v:"Currículo",t:"Currículo"},{v:"LinkedIn",t:"LinkedIn"},{v:"Pacote",t:"Pacote"},{v:"site",t:"Cadastro em Sites"}]}/>
             {operadores.length>0&&<Sel value={fOp} onChange={e=>setFOp(e.target.value)} options={["Todos",...operadores].map(s=>({v:s,t:s}))}/>}
+            <Sel value={fMes} onChange={e=>setFMes(e.target.value)} options={[{v:"Todos",t:"Todos os meses"},...MESES.map((m,i)=>({v:String(i+1).padStart(2,"0"),t:m}))]}/>
+            <Sel value={fAno} onChange={e=>setFAno(e.target.value)} options={[{v:"Todos",t:"Todos os anos"},...anosFiltro.map(a=>({v:a,t:a}))]}/>
             <span style={{fontSize:13,color:C.g600,whiteSpace:"nowrap"}}>{filtrados.length} pedido(s)</span>
           </div>
           {filtrados.length===0?(
