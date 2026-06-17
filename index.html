@@ -7,23 +7,33 @@
   <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-  <script type="module">
-    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.0/firebase-app.js";
-    import { getFirestore, collection, doc, setDoc, deleteDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.7.0/firebase-firestore.js";
- 
-    const firebaseConfig = {
-      apiKey: "AIzaSyC6JAbJTc-HWrDBKTgPRitx4xFK29-1Hl0",
-      authDomain: "rbecarreira.firebaseapp.com",
-      projectId: "rbecarreira",
-      storageBucket: "rbecarreira.firebasestorage.app",
-      messagingSenderId: "390907131123",
-      appId: "1:390907131123:web:3b5c96af40ca778f893386"
-    };
- 
-    const app = initializeApp(firebaseConfig);
-    const db = getFirestore(app);
- 
-    window.__firebase = { db, collection, doc, setDoc, deleteDoc, onSnapshot };
+  <script>
+    window.__firebaseReady = (async () => {
+      const appModule = await import("https://www.gstatic.com/firebasejs/10.7.0/firebase-app.js");
+      const firestoreModule = await import("https://www.gstatic.com/firebasejs/10.7.0/firebase-firestore.js");
+
+      const { initializeApp } = appModule;
+      const { getFirestore, collection, doc, setDoc, deleteDoc, onSnapshot } = firestoreModule;
+
+      const firebaseConfig = {
+        apiKey: "AIzaSyC6JAbJTc-HWrDBKTgPRitx4xFK29-1Hl0",
+        authDomain: "rbecarreira.firebaseapp.com",
+        projectId: "rbecarreira",
+        storageBucket: "rbecarreira.firebasestorage.app",
+        messagingSenderId: "390907131123",
+        appId: "1:390907131123:web:3b5c96af40ca778f893386"
+      };
+
+      const app = initializeApp(firebaseConfig);
+      const db = getFirestore(app);
+
+      window.__firebase = { db, collection, doc, setDoc, deleteDoc, onSnapshot };
+      return window.__firebase;
+    })().catch((error) => {
+      console.error("Erro ao carregar Firebase:", error);
+      window.__firebaseError = error;
+      return null;
+    });
   </script>
   <style>
     * { margin:0; padding:0; box-sizing:border-box; }
@@ -102,16 +112,25 @@ const USERS_DEFAULT = { admin:{ name:"Admin", role:"admin", pass:"admin123", wha
  
 const { useState, useEffect } = React;
  
+const getFirebase = async () => {
+  if (window.__firebase) return window.__firebase;
+  if (window.__firebaseReady) {
+    const fb = await window.__firebaseReady;
+    if (fb) return fb;
+  }
+  throw new Error("Firebase não carregou. Verifique a conexão e as configurações do projeto.");
+};
+
 const savePedido = async (p) => {
-  const { db, doc, setDoc, collection } = window.__firebase;
+  const { db, doc, setDoc } = await getFirebase();
   await setDoc(doc(db, "pedidos", p.id), p);
 };
 const deletePedido = async (id) => {
-  const { db, doc, deleteDoc } = window.__firebase;
+  const { db, doc, deleteDoc } = await getFirebase();
   await deleteDoc(doc(db, "pedidos", id));
 };
 const saveUsers = async (u) => {
-  const { db, doc, setDoc } = window.__firebase;
+  const { db, doc, setDoc } = await getFirebase();
   await setDoc(doc(db, "config", "users"), { data: JSON.stringify(u) });
 };
  
@@ -770,19 +789,28 @@ function App(){
   },[]);
  
   useEffect(()=>{
-    const wait=setInterval(()=>{
-      if(!window.__firebase) return;
-      clearInterval(wait);
-      const {db,collection,doc,onSnapshot}=window.__firebase;
-      onSnapshot(collection(db,"pedidos"),(snap)=>{
+    let unsubPedidos = null;
+    let unsubUsers = null;
+
+    getFirebase().then(({db,collection,doc,onSnapshot})=>{
+      unsubPedidos = onSnapshot(collection(db,"pedidos"),(snap)=>{
         setPeds(snap.docs.map(d=>({...d.data()})));
         setLoad(false);
       },(err)=>{console.error(err);setLoad(false);});
-      onSnapshot(doc(db,"config","users"),(snap)=>{
+
+      unsubUsers = onSnapshot(doc(db,"config","users"),(snap)=>{
         if(snap.exists()&&snap.data().data){try{setUsers(JSON.parse(snap.data().data));}catch{}}
       });
-    },300);
-    return ()=>clearInterval(wait);
+    }).catch((err)=>{
+      console.error(err);
+      setLoad(false);
+      alert("Erro ao carregar o Firebase. Abra o Console para ver detalhes.");
+    });
+
+    return ()=>{
+      if(unsubPedidos) unsubPedidos();
+      if(unsubUsers) unsubUsers();
+    };
   },[]);
  
   if(load) return <div style={{height:"100vh",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,color:"#0F2445"}}>🔥 Carregando RBE Select...</div>;
